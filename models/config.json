@@ -1,0 +1,24 @@
+{
+  "model_version": "v1.0",
+  "trained_at": "2025-11-04T14:23:48.592745",
+  "features": [
+    "Gender",
+    "Age",
+    "Hipertension",
+    "Diabetes",
+    "Alcoholism",
+    "Handcap",
+    "SMS_received",
+    "dias_antecedencia",
+    "dia_semana_consulta",
+    "eh_fim_de_semana"
+  ],
+  "threshold": 0.35,
+  "metrics": {
+    "accuracy": 0.5934135528815706,
+    "precision": 0.30313315926892953,
+    "recall": 0.780241935483871,
+    "f1_score": 0.4366303121474238,
+    "roc_auc": 0.7086581426938565
+  }
+}
