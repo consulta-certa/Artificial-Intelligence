@@ -1,5 +1,8 @@
 """
-API Flask SIMPLES para Consulta Certa ML
+API Flask para Consulta Certa ML
+Versão limpa e comentada: Prediz risco de no-show em consultas médicas usando XGBoost e clustering KMeans.
+Integra com banco Oracle para consultar dados de pacientes e salvar predições.
+Nota: Dados de saúde são gerenciados pelo front-end; a API apenas consulta e prediz.
 """
 
 from flask import Flask, request, jsonify
@@ -11,141 +14,188 @@ import pandas as pd
 from datetime import datetime, date
 import oracledb
 import os
+import uuid
 from dotenv import load_dotenv
 
+# Carregar variáveis de ambiente (ex.: credenciais do banco)
 load_dotenv()
 
+# Inicializar Flask e habilitar CORS para integração com front-end
 app = Flask(__name__)
 CORS(app)
 
 # ==================================================
-# CARREGAR MODELOS
+# CARREGAMENTO DE MODELOS E CONFIGURAÇÕES
 # ==================================================
+"""
+Esta seção carrega os modelos treinados no Colab e configurações.
+- modelo_noshow: XGBoost para predizer probabilidade de no-show.
+- modelo_clustering: KMeans para agrupar pacientes em clusters (baseado em saúde).
+- scaler: Padroniza features para o modelo de no-show (13 features: básicas + clusters).
+- scaler_clustering: Padroniza features para clustering (5 features: idade, hipertensão, etc.).
+- config: Contém versão, features esperadas, threshold e métricas.
+"""
 
 print("🔄 Carregando modelos...")
 
-with open('../models/modelo_noshow.pkl', 'rb') as f:
+# Carregar modelo de predição de no-show
+with open('./models/modelo_noshow.pkl', 'rb') as f:
     modelo_noshow = pickle.load(f)
 
-with open('../models/modelo_clustering.pkl', 'rb') as f:
+# Carregar modelo de clustering
+with open('./models/modelo_clustering.pkl', 'rb') as f:
     modelo_clustering = pickle.load(f)
 
-with open('../models/scaler.pkl', 'rb') as f:
+# Carregar scaler para features completas (13)
+with open('./models/scaler.pkl', 'rb') as f:
     scaler = pickle.load(f)
 
-with open('../models/config.json', 'r') as f:
+# Carregar scaler para features de clustering (5)
+with open('./models/scaler_clustering.pkl', 'rb') as f:
+    scaler_clustering = pickle.load(f)
+
+# Carregar configurações (features, threshold, etc.)
+with open('./models/config.json', 'r') as f:
     config = json.load(f)
 
-FEATURES = config['features']
-THRESHOLD = config['threshold']
+# Extrair constantes do config
+FEATURES = config['features']  # Lista de 13 features esperadas pelo modelo
+THRESHOLD = config['threshold']  # Limite para classificar como "vai faltar"
 
 print("✅ Modelos carregados!")
 
 # ==================================================
 # FUNÇÕES AUXILIARES
 # ==================================================
+"""
+Funções de suporte para conectar ao banco, gerar IDs, buscar dados e preparar features.
+Essas funções isolam a lógica reutilizável e facilitam manutenção.
+"""
+
+def gerar_uuid():
+    """Gera um UUID único compatível com Oracle para IDs de tabelas."""
+    return str(uuid.uuid4())
 
 def conectar_oracle():
-    """Conecta ao banco Oracle"""
+    """Estabelece conexão com o banco Oracle usando credenciais do .env."""
     return oracledb.connect(
         user=os.getenv('ORACLE_USER'),
         password=os.getenv('ORACLE_PASSWORD'),
         dsn=os.getenv('ORACLE_DSN')
     )
 
-
 def buscar_dados_saude(id_paciente):
-    """Busca dados de saúde do paciente"""
-    conn = conectar_oracle()
-    cursor = conn.cursor()
-    
-    query = """
-        SELECT idade, genero, tem_hipertensao, tem_diabetes, 
-               consome_alcool, possui_deficiencia
-        FROM cc_dados_saude_paciente
-        WHERE id_paciente = :id_paciente
     """
-    
-    cursor.execute(query, [id_paciente])
-    result = cursor.fetchone()
-    
-    cursor.close()
-    conn.close()
-    
-    if not result:
+    Busca dados de saúde do paciente no banco Oracle (inseridos pelo front-end).
+    Retorna um dicionário com idade, gênero, condições médicas, etc.
+    Se não encontrar, retorna None (paciente não preencheu questionário).
+    """
+    try:
+        conn = conectar_oracle()
+        cursor = conn.cursor()
+        
+        query = """
+            SELECT idade, genero, tem_hipertensao, tem_diabetes, 
+                   consome_alcool, possui_deficiencia
+            FROM cc_dados_saude_paciente
+            WHERE id_paciente = :id_pac
+        """
+        
+        cursor.execute(query, {'id_pac': id_paciente})
+        result = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if not result:
+            return None
+        
+        return {
+            'idade': result[0],
+            'genero': result[1],
+            'tem_hipertensao': result[2],
+            'tem_diabetes': result[3],
+            'consome_alcool': result[4],
+            'possui_deficiencia': result[5]
+        }
+    except Exception as e:
+        print(f"❌ Erro ao buscar dados de saúde: {e}")
         return None
-    
-    return {
-        'idade': result[0],
-        'genero': result[1],
-        'tem_hipertensao': result[2],
-        'tem_diabetes': result[3],
-        'consome_alcool': result[4],
-        'possui_deficiencia': result[5]
-    }
-
 
 def verificar_sms_enviado(id_consulta):
-    """Verifica se já enviou SMS para a consulta"""
-    conn = conectar_oracle()
-    cursor = conn.cursor()
-    
-    query = """
-        SELECT COUNT(*) FROM cc_lembretes 
-        WHERE id_consulta = :id_consulta AND enviado = 'S'
     """
-    
-    cursor.execute(query, [id_consulta])
-    count = cursor.fetchone()[0]
-    
-    cursor.close()
-    conn.close()
-    
-    return count > 0
-
+    Verifica se já foi enviado SMS para a consulta (usado como feature).
+    Retorna True se enviado, False caso contrário.
+    """
+    try:
+        conn = conectar_oracle()
+        cursor = conn.cursor()
+        
+        query = """
+            SELECT COUNT(*) FROM cc_lembretes 
+            WHERE id_consulta = :id_cons AND enviado = 's'
+        """
+        
+        cursor.execute(query, {'id_cons': id_consulta})
+        count = cursor.fetchone()[0]
+        
+        cursor.close()
+        conn.close()
+        
+        return count > 0
+    except Exception as e:
+        print(f"❌ Erro ao verificar SMS: {e}")
+        return False
 
 def salvar_predicao(id_consulta, id_paciente, predicao):
-    """Salva predição no banco"""
-    conn = conectar_oracle()
-    cursor = conn.cursor()
-    
-    query = """
-        INSERT INTO cc_predicoes_noshow 
-        (id_consulta, id_paciente, probabilidade_falta, nivel_risco, vai_faltar)
-        VALUES (:id_consulta, :id_paciente, :probabilidade, :nivel_risco, :vai_faltar)
     """
-    
-    cursor.execute(query, {
-        'id_consulta': id_consulta,
-        'id_paciente': id_paciente,
-        'probabilidade': predicao['probabilidade_falta'],
-        'nivel_risco': predicao['nivel_risco'],
-        'vai_faltar': 'S' if predicao['vai_faltar'] else 'N'
-    })
-    
-    # Atualizar tabela de consultas
-    update_query = """
-        UPDATE cc_consultas 
-        SET risco_noshow = :nivel_risco 
-        WHERE id = :id_consulta
+    Salva a predição no banco Oracle (tabela cc_predicoes_noshow).
+    Inclui probabilidade, nível de risco e se vai faltar.
     """
-    cursor.execute(update_query, {
-        'nivel_risco': predicao['nivel_risco'],
-        'id_consulta': id_consulta
-    })
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
-
+    try:
+        conn = conectar_oracle()
+        cursor = conn.cursor()
+        
+        predicao_id = gerar_uuid()
+        
+        query = """
+            INSERT INTO cc_predicoes_noshow 
+            (id, id_consulta, id_paciente, probabilidade_falta, nivel_risco, vai_faltar)
+            VALUES (:p_id, :p_id_consulta, :p_id_paciente, :p_probabilidade, :p_nivel_risco, :p_vai_faltar)
+        """
+        
+        cursor.execute(query, {
+            'p_id': predicao_id,
+            'p_id_consulta': id_consulta,
+            'p_id_paciente': id_paciente,
+            'p_probabilidade': float(predicao['probabilidade_falta']),
+            'p_nivel_risco': predicao['nivel_risco'],
+            'p_vai_faltar': 's' if predicao['vai_faltar'] else 'n'
+        })
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        print(f"✅ Predição salva: {predicao['nivel_risco']}")
+        
+    except Exception as e:
+        print(f"❌ Erro ao salvar predição: {e}")
+        raise
 
 def preparar_features(dados_saude, dados_consulta):
-    """Prepara features para o modelo"""
-    # Converter Oracle (S/N) para modelo (0/1)
-    bool_map = {'S': 1, 'N': 0}
-    genero_map = {'M': 0, 'F': 1}
+    """
+    Prepara as 13 features para o modelo de no-show.
+    - Monta 10 features básicas (dados pessoais + temporais).
+    - Usa 5 features de saúde para prever cluster com KMeans.
+    - Adiciona dummies de cluster (cluster_1, cluster_2, cluster_3).
+    Retorna dicionário com todas as features na ordem esperada.
+    """
+    # Mapeamentos para converter dados do banco (s/n, m/f) em números
+    bool_map = {'s': 1, 'n': 0}
+    genero_map = {'m': 0, 'f': 1}
     
-    # Calcular features temporais
+    # Calcular features temporais baseadas nas datas
     data_agendamento = datetime.strptime(dados_consulta['data_agendamento'], '%Y-%m-%d').date()
     data_consulta_obj = datetime.strptime(dados_consulta['data_consulta'], '%Y-%m-%d').date()
     
@@ -153,11 +203,11 @@ def preparar_features(dados_saude, dados_consulta):
     dia_semana = data_consulta_obj.weekday()
     eh_fim_de_semana = 1 if dia_semana >= 5 else 0
     
-    # Verificar se já enviou SMS
+    # Verificar se SMS foi enviado (feature adicional)
     sms_received = 1 if verificar_sms_enviado(dados_consulta['id_consulta']) else 0
     
-    # Montar features na ORDEM CORRETA
-    features = {
+    # Montar 10 features básicas para o modelo final
+    features_basicas = {
         'Gender': genero_map.get(dados_saude['genero'], 0),
         'Age': dados_saude['idade'],
         'Hipertension': bool_map.get(dados_saude['tem_hipertensao'], 0),
@@ -170,78 +220,106 @@ def preparar_features(dados_saude, dados_consulta):
         'eh_fim_de_semana': eh_fim_de_semana
     }
     
+    # Montar 5 features específicas para clustering (idade e condições médicas)
+    features_clustering = {
+        'Age': dados_saude['idade'],
+        'Hipertension': bool_map.get(dados_saude['tem_hipertensao'], 0),
+        'Diabetes': bool_map.get(dados_saude['tem_diabetes'], 0),
+        'Alcoholism': bool_map.get(dados_saude['consome_alcool'], 0),
+        'Handcap': bool_map.get(dados_saude['possui_deficiencia'], 0)
+    }
+    
+    # Padronizar as 5 features para clustering e prever cluster
+    X_clustering = pd.DataFrame([features_clustering])
+    X_clustering_scaled = scaler_clustering.transform(X_clustering)
+    cluster_predito = modelo_clustering.predict(X_clustering_scaled)[0]
+    
+    # Criar dummies binárias para os clusters (0, 1, 2, 3 → cluster_1, cluster_2, cluster_3)
+    features_clusters = {
+        'cluster_1': 1 if cluster_predito == 1 else 0,
+        'cluster_2': 1 if cluster_predito == 2 else 0,
+        'cluster_3': 1 if cluster_predito == 3 else 0
+    }
+    
+    # Combinar tudo: 10 básicas + 3 clusters = 13 features
+    features = {**features_basicas, **features_clusters}
+    
     return features
 
-
 def calcular_nivel_risco(probabilidade):
-    """Calcula nível de risco"""
+    """
+    Classifica o nível de risco baseado na probabilidade de falta.
+    Retorna string: 'baixo', 'medio', 'alto' ou 'muito_alto'.
+    """
     if probabilidade >= 0.7:
-        return "MUITO_ALTO"
+        return "muito_alto"
     elif probabilidade >= 0.5:
-        return "ALTO"
+        return "alto"
     elif probabilidade >= 0.3:
-        return "MEDIO"
+        return "medio"
     else:
-        return "BAIXO"
-
+        return "baixo"
 
 def gerar_recomendacoes(nivel_risco):
-    """Gera recomendações por nível de risco"""
+    """
+    Gera recomendações personalizadas por nível de risco.
+    Inclui lembretes, canais, ações e prioridade.
+    """
     recomendacoes = {
-        "MUITO_ALTO": {
+        "muito_alto": {
             "lembretes": 3,
             "canais": ["SMS", "Email", "WhatsApp"],
             "acoes": ["Tutorial em vídeo", "Chatbot proativo", "Ligação telefônica"],
             "prioridade": "CRITICA"
         },
-        "ALTO": {
+        "alto": {
             "lembretes": 2,
             "canais": ["Email", "SMS"],
             "acoes": ["Tutorial passo-a-passo", "Chatbot disponível"],
             "prioridade": "ALTA"
         },
-        "MEDIO": {
+        "medio": {
             "lembretes": 2,
             "canais": ["Email", "SMS"],
             "acoes": ["Lembrete com FAQ"],
             "prioridade": "MEDIA"
         },
-        "BAIXO": {
+        "baixo": {
             "lembretes": 1,
             "canais": ["Email"],
             "acoes": ["Lembrete padrão"],
             "prioridade": "BAIXA"
         }
     }
-    return recomendacoes.get(nivel_risco, recomendacoes["MEDIO"])
-
+    return recomendacoes.get(nivel_risco, recomendacoes["medio"])
 
 # ==================================================
 # ROTAS DA API
 # ==================================================
+"""
+Rotas REST para interação com o front-end.
+- /health: Verifica se a API está online.
+- /predict-noshow: Prediz risco de no-show (consulta dados e salva predição).
+Nota: Dados de saúde são inseridos pelo front-end diretamente no banco.
+"""
 
 @app.route('/api/ml/health', methods=['GET'])
 def health_check():
-    """Health check da API"""
+    """Verifica o status da API e retorna versão do modelo."""
     return jsonify({
         "status": "online",
         "modelo": "carregado",
         "versao": config['model_version']
     }), 200
 
-
 @app.route('/api/ml/predict-noshow', methods=['POST'])
 def predict_noshow():
     """
-    Prediz risco de no-show
-    
-    Body JSON:
-    {
-        "id_consulta": 123,
-        "id_paciente": 456,
-        "data_agendamento": "2024-11-01",
-        "data_consulta": "2024-12-15"
-    }
+    Prediz risco de no-show para uma consulta.
+    Recebe JSON com IDs e datas, consulta dados de saúde (inseridos pelo front-end),
+    prepara features com clusters, prediz com XGBoost, calcula nível de risco e recomendações,
+    salva a predição no banco.
+    Retorna predição ou erro.
     """
     try:
         data = request.get_json()
@@ -252,7 +330,7 @@ def predict_noshow():
             if field not in data:
                 return jsonify({"error": f"Campo obrigatório: {field}"}), 400
         
-        # Buscar dados de saúde do paciente
+        # Buscar dados de saúde do paciente (inseridos pelo front-end)
         dados_saude = buscar_dados_saude(data['id_paciente'])
         
         if not dados_saude:
@@ -261,10 +339,10 @@ def predict_noshow():
                 "action": "Redirecionar para questionário"
             }), 404
         
-        # Preparar features
+        # Preparar features (incluindo clusters)
         features = preparar_features(dados_saude, data)
         
-        # Fazer predição
+        # Fazer predição com XGBoost
         X = pd.DataFrame([features])[FEATURES]
         X_scaled = scaler.transform(X)
         
@@ -281,7 +359,7 @@ def predict_noshow():
             "recomendacoes": recomendacoes
         }
         
-        # Salvar no banco
+        # Salvar predição no banco
         salvar_predicao(data['id_consulta'], data['id_paciente'], predicao)
         
         return jsonify({
@@ -291,76 +369,18 @@ def predict_noshow():
         }), 200
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/ml/dados-saude', methods=['POST'])
-def salvar_dados_saude():
-    """
-    Salva dados de saúde do paciente (primeira vez)
-    
-    Body JSON:
-    {
-        "id_paciente": 456,
-        "idade": 68,
-        "genero": "F",
-        "tem_hipertensao": "S",
-        "tem_diabetes": "S",
-        "consome_alcool": "N",
-        "possui_deficiencia": "N",
-        "tipo_deficiencia": null
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        conn = conectar_oracle()
-        cursor = conn.cursor()
-        
-        # Verificar se já existe
-        check_query = "SELECT id FROM cc_dados_saude_paciente WHERE id_paciente = :id_paciente"
-        cursor.execute(check_query, [data['id_paciente']])
-        existing = cursor.fetchone()
-        
-        if existing:
-            # UPDATE
-            query = """
-                UPDATE cc_dados_saude_paciente
-                SET idade = :idade, genero = :genero, 
-                    tem_hipertensao = :tem_hipertensao, tem_diabetes = :tem_diabetes,
-                    consome_alcool = :consome_alcool, possui_deficiencia = :possui_deficiencia,
-                    tipo_deficiencia = :tipo_deficiencia
-                WHERE id_paciente = :id_paciente
-            """
-            cursor.execute(query, data)
-        else:
-            # INSERT
-            query = """
-                INSERT INTO cc_dados_saude_paciente 
-                (id_paciente, idade, genero, tem_hipertensao, tem_diabetes, 
-                 consome_alcool, possui_deficiencia, tipo_deficiencia)
-                VALUES 
-                (:id_paciente, :idade, :genero, :tem_hipertensao, :tem_diabetes,
-                 :consome_alcool, :possui_deficiencia, :tipo_deficiencia)
-            """
-            cursor.execute(query, data)
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
         return jsonify({
-            "success": True,
-            "message": "Dados salvos com sucesso"
-        }), 200
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+            "success": False,
+            "error": str(e)
+        }), 500
 
 # ==================================================
-# EXECUTAR API
+# EXECUÇÃO DA API
 # ==================================================
+"""
+Executa a API Flask em modo debug, acessível em localhost:5000.
+Use Ctrl+C para parar.
+"""
 
 if __name__ == '__main__':
     print("\n" + "="*60)

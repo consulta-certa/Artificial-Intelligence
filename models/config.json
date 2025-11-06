@@ -1,6 +1,6 @@
 {
-  "model_version": "v1.0",
-  "trained_at": "2025-11-04T14:23:48.592745",
+  "model_version": "v1.2",
+  "trained_at": "2025-11-06T13:43:24.029414",
   "features": [
     "Gender",
     "Age",
@@ -11,9 +11,12 @@
     "SMS_received",
     "dias_antecedencia",
     "dia_semana_consulta",
-    "eh_fim_de_semana"
+    "eh_fim_de_semana",
+    "cluster_1",
+    "cluster_2",
+    "cluster_3"
   ],
-  "threshold": 0.35,
+  "threshold": 0.43565656565656563,
   "metrics": {
     "accuracy": 0.5934135528815706,
     "precision": 0.30313315926892953,
