@@ -85,15 +85,7 @@ Sistema de Machine Learning que:
 
 ## 🏗️ Arquitetura
 ```
-┌─────────────────┐      HTTP/REST      ┌──────────────────┐
-│   FRONTEND      │ ←─────────────────→ │   BACKEND FLASK  │
-│  React + TS     │    JSON (API)       │   + ML Models    │
-└─────────────────┘                     └──────────────────┘
-                                               ↓
-                                        ┌──────────────────┐
-                                        │  ORACLE DATABASE │
-                                        │  + Predições     │
-                                        └──────────────────┘
++-----------------+ HTTP/REST +-------------------+ | FRONTEND | <--------------------->| BACKEND FLASK | | React + TS | JSON (API Request) | + ML Models | +-----------------+ +-------------------+ ▲ │ │ (Exibe resultados) │ (Acessa dados, salva predições) │ ▼ +----------------------------------------+-------------------+ | ORACLE DATABASE | | + Dados de Saúde | | + Consultas | | + Predições | +-------------------+
 ```
 
 
@@ -528,7 +520,7 @@ Envie uma requisição `POST` para `http://localhost:5000/api/ml/predict-noshow`
 | :--- | :--- | :--- |
 | [Felipe Ferrete] | Desenvolvedor Backend & ML | [https://www.linkedin.com/in/felipe-ferrete-ab63a318a) |
 | [Gustavo Bosak] | Desenvolvedor Frontend | [https://www.linkedin.com/in/gustavo-bosak-santos) |
-| [Nikolas Brisola] | Desenvolvedor Frontend | [https://www.linkedin.com/in/nikolas-brisola-ab3588353) |
+| [Nikolas Brisola] | Desenvolvedor Banco Oracle | [https://www.linkedin.com/in/nikolas-brisola-ab3588353) |
 
 -----
 
@@ -538,3 +530,4 @@ Este projeto é licenciado sob a Licença MIT. Veja o arquivo `LICENSE` para mai
 
 ```
 ```
+
