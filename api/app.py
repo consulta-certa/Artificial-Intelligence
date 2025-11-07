@@ -87,7 +87,8 @@ def buscar_dados_consulta(id_paciente):
             SELECT id_consulta, data_agendamento, data_consulta
             FROM cc_consultas
             WHERE id_paciente = :id_pac
-            ORDER BY data_consulta DESC  -- Ou ASC para a próxima futura
+            AND data_consulta >= SYSDATE
+            ORDER BY data_consulta ASC
             FETCH FIRST 1 ROW ONLY
         """
         
@@ -124,7 +125,7 @@ def conectar_oracle():
 def buscar_dados_saude(id_paciente):
     """
     Busca dados de saúde do paciente no banco Oracle (inseridos pelo front-end).
-    Retorna um dicionário com idade, gênero, condições médicas, etc.
+    Retorna um dicionário com idade, sexo, condições médicas, etc.
     Se não encontrar, retorna None (paciente não preencheu questionário).
     """
     try:
