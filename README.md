@@ -1,5 +1,3 @@
-Aqui está o README.md completo em uma única caixa de texto para você copiar e colar:
-
 ```markdown
 # 🤖 Consulta Certa - Sistema de Predição de No-Show
 
@@ -530,4 +528,5 @@ Este projeto é licenciado sob a Licença MIT. Veja o arquivo `LICENSE` para mai
 
 ```
 ```
+
 
