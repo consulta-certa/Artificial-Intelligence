@@ -71,6 +71,43 @@ print("✅ Modelos carregados!")
 Funções de suporte para conectar ao banco, gerar IDs, buscar dados e preparar features.
 Essas funções isolam a lógica reutilizável e facilitam manutenção.
 """
+ 
+def buscar_dados_consulta(id_paciente):
+    """
+    Busca dados da consulta (id_consulta, data_agendamento, data_consulta) para o paciente na tabela cc_consultas.
+    Assume que há uma consulta "ativa" (ex.: a próxima futura ou a mais recente).
+    Retorna um dicionário ou None se não encontrar.
+    """
+    try:
+        conn = conectar_oracle()
+        cursor = conn.cursor()
+        # Query: Busca a consulta mais próxima futura (ou a mais recente se não houver futura)
+        # Ajuste a lógica conforme sua necessidade (ex.: WHERE data_consulta >= SYSDATE ORDER BY data_consulta ASC LIMIT 1)
+        query = """
+            SELECT id_consulta, data_agendamento, data_consulta
+            FROM cc_consultas
+            WHERE id_paciente = :id_pac
+            ORDER BY data_consulta DESC  -- Ou ASC para a próxima futura
+            FETCH FIRST 1 ROW ONLY
+        """
+        
+        cursor.execute(query, {'id_pac': id_paciente})
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not result:
+            return None
+            
+        return {
+            'id_consulta': result[0],
+            'data_agendamento': result[1],
+            'data_consulta': result[2]
+        }
+
+    except Exception as e:
+        print(f"❌ Erro ao buscar dados da consulta: {e}")
+        return None
 
 def gerar_uuid():
     """Gera um UUID único compatível com Oracle para IDs de tabelas."""
@@ -95,7 +132,7 @@ def buscar_dados_saude(id_paciente):
         cursor = conn.cursor()
         
         query = """
-            SELECT idade, genero, tem_hipertensao, tem_diabetes, 
+            SELECT idade, sexo, tem_hipertensao, tem_diabetes, 
                    consome_alcool, possui_deficiencia
             FROM cc_dados_saude_paciente
             WHERE id_paciente = :id_pac
@@ -112,7 +149,7 @@ def buscar_dados_saude(id_paciente):
         
         return {
             'idade': result[0],
-            'genero': result[1],
+            'sexo': result[1],
             'tem_hipertensao': result[2],
             'tem_diabetes': result[3],
             'consome_alcool': result[4],
@@ -193,7 +230,7 @@ def preparar_features(dados_saude, dados_consulta):
     """
     # Mapeamentos para converter dados do banco (s/n, m/f) em números
     bool_map = {'s': 1, 'n': 0}
-    genero_map = {'m': 0, 'f': 1}
+    sexo_map = {'m': 0, 'f': 1}
     
     # Calcular features temporais baseadas nas datas
     data_agendamento = datetime.strptime(dados_consulta['data_agendamento'], '%Y-%m-%d').date()
@@ -208,7 +245,7 @@ def preparar_features(dados_saude, dados_consulta):
     
     # Montar 10 features básicas para o modelo final
     features_basicas = {
-        'Gender': genero_map.get(dados_saude['genero'], 0),
+        'Gender': sexo_map.get(dados_saude['sexo'], 0),
         'Age': dados_saude['idade'],
         'Hipertension': bool_map.get(dados_saude['tem_hipertensao'], 0),
         'Diabetes': bool_map.get(dados_saude['tem_diabetes'], 0),
@@ -314,44 +351,31 @@ def health_check():
 
 @app.route('/api/ml/predict-noshow', methods=['POST'])
 def predict_noshow():
-    """
-    Prediz risco de no-show para uma consulta.
-    Recebe JSON com IDs e datas, consulta dados de saúde (inseridos pelo front-end),
-    prepara features com clusters, prediz com XGBoost, calcula nível de risco e recomendações,
-    salva a predição no banco.
-    Retorna predição ou erro.
-    """
     try:
         data = request.get_json()
+        if 'id_paciente' not in data:
+            return jsonify({"error": "Campo obrigatório: id_paciente"}), 400
         
-        # Validar campos obrigatórios
-        required = ['id_consulta', 'id_paciente', 'data_agendamento', 'data_consulta']
-        for field in required:
-            if field not in data:
-                return jsonify({"error": f"Campo obrigatório: {field}"}), 400
-        
-        # Buscar dados de saúde do paciente (inseridos pelo front-end)
+        # Buscar dados de saúde
         dados_saude = buscar_dados_saude(data['id_paciente'])
-        
         if not dados_saude:
-            return jsonify({
-                "error": "Paciente não preencheu dados de saúde",
-                "action": "Redirecionar para questionário"
-            }), 404
+            return jsonify({"error": "Paciente não preencheu dados de saúde"}), 404
         
-        # Preparar features (incluindo clusters)
-        features = preparar_features(dados_saude, data)
+        # Buscar dados da consulta
+        dados_consulta = buscar_dados_consulta(data['id_paciente'])
+        if not dados_consulta:
+            return jsonify({"error": "Nenhuma consulta encontrada para o paciente"}), 404
         
-        # Fazer predição com XGBoost
+        # Preparar features
+        features = preparar_features(dados_saude, dados_consulta)
+        
+        # Predição
         X = pd.DataFrame([features])[FEATURES]
         X_scaled = scaler.transform(X)
-        
         probabilidade = modelo_noshow.predict_proba(X_scaled)[0][1]
         vai_faltar = probabilidade >= THRESHOLD
         nivel_risco = calcular_nivel_risco(probabilidade)
         recomendacoes = gerar_recomendacoes(nivel_risco)
-        
-        # Montar resposta
         predicao = {
             "vai_faltar": bool(vai_faltar),
             "probabilidade_falta": round(float(probabilidade), 4),
@@ -359,20 +383,12 @@ def predict_noshow():
             "recomendacoes": recomendacoes
         }
         
-        # Salvar predição no banco
-        salvar_predicao(data['id_consulta'], data['id_paciente'], predicao)
-        
-        return jsonify({
-            "success": True,
-            "predicao": predicao,
-            "timestamp": datetime.now().isoformat()
-        }), 200
+        # Salvar predição
+        salvar_predicao(dados_consulta['id_consulta'], data['id_paciente'], predicao)
+        return jsonify({"success": True, "predicao": predicao}), 200
     
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # ==================================================
 # EXECUÇÃO DA API
