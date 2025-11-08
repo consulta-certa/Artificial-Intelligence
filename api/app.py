@@ -84,7 +84,7 @@ def buscar_dados_consulta(id_paciente):
         # Query: Busca a consulta mais próxima futura (ou a mais recente se não houver futura)
         # Ajuste a lógica conforme sua necessidade (ex.: WHERE data_consulta >= SYSDATE ORDER BY data_consulta ASC LIMIT 1)
         query = """
-            SELECT id_consulta, data_consulta
+            SELECT id, data_consulta
             FROM cc_consultas
             WHERE id_paciente = :id_pac
             AND data_consulta >= SYSDATE
