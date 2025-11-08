@@ -74,7 +74,7 @@ Essas funções isolam a lógica reutilizável e facilitam manutenção.
  
 def buscar_dados_consulta(id_paciente):
     """
-    Busca dados da consulta (id_consulta, data_agendamento, data_consulta) para o paciente na tabela cc_consultas.
+    Busca dados da consulta (id_consulta, data_consulta) para o paciente na tabela cc_consultas.
     Assume que há uma consulta "ativa" (ex.: a próxima futura ou a mais recente).
     Retorna um dicionário ou None se não encontrar.
     """
@@ -84,7 +84,7 @@ def buscar_dados_consulta(id_paciente):
         # Query: Busca a consulta mais próxima futura (ou a mais recente se não houver futura)
         # Ajuste a lógica conforme sua necessidade (ex.: WHERE data_consulta >= SYSDATE ORDER BY data_consulta ASC LIMIT 1)
         query = """
-            SELECT id_consulta, data_agendamento, data_consulta
+            SELECT id_consulta, data_consulta
             FROM cc_consultas
             WHERE id_paciente = :id_pac
             AND data_consulta >= SYSDATE
@@ -102,8 +102,7 @@ def buscar_dados_consulta(id_paciente):
             
         return {
             'id_consulta': result[0],
-            'data_agendamento': result[1],
-            'data_consulta': result[2]
+            'data_consulta': result[1]
         }
 
     except Exception as e:
@@ -134,7 +133,7 @@ def buscar_dados_saude(id_paciente):
         
         query = """
             SELECT idade, sexo, tem_hipertensao, tem_diabetes, 
-                   consome_alcool, possui_deficiencia
+                   consome_alcool, possui_deficiencia, data_preenchimento
             FROM cc_dados_saude_paciente
             WHERE id_paciente = :id_pac
         """
@@ -154,7 +153,8 @@ def buscar_dados_saude(id_paciente):
             'tem_hipertensao': result[2],
             'tem_diabetes': result[3],
             'consome_alcool': result[4],
-            'possui_deficiencia': result[5]
+            'possui_deficiencia': result[5],
+            'data_preenchimento': result[6]
         }
     except Exception as e:
         print(f"❌ Erro ao buscar dados de saúde: {e}")
@@ -234,7 +234,7 @@ def preparar_features(dados_saude, dados_consulta):
     sexo_map = {'m': 0, 'f': 1}
     
     # Calcular features temporais baseadas nas datas
-    data_agendamento = datetime.strptime(dados_consulta['data_agendamento'], '%Y-%m-%d').date()
+    data_agendamento = datetime.strptime(dados_saude['data_preenchimento'], '%Y-%m-%d').date()
     data_consulta_obj = datetime.strptime(dados_consulta['data_consulta'], '%Y-%m-%d').date()
     
     dias_antecedencia = (data_consulta_obj - data_agendamento).days
