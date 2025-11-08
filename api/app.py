@@ -102,8 +102,8 @@ def buscar_dados_consulta(id_paciente):
             
         return {
             'id_consulta': result[0],
-            'data_consulta': result[1],
-            'data_agendamento': result[2]
+            'data_consulta': result[1] if isinstance(result[1], datetime) else datetime.fromisoformat(result[1]),
+            'data_agendamento': result[2] if isinstance(result[2], datetime) else datetime.fromisoformat(result[2])
         }
 
     except Exception as e:
@@ -221,6 +221,17 @@ def salvar_predicao(id_consulta, id_paciente, predicao):
         print(f"❌ Erro ao salvar predição: {e}")
         raise
 
+def to_datetime(value):
+    """Converte valor para datetime, aceitando datetime ou string ISO."""
+    if isinstance(value, datetime):
+        return value
+    elif isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    elif isinstance(value, str):
+        return datetime.fromisoformat(value)
+    else:
+        raise ValueError(f"Formato inesperado: {type(value)}")
+
 def preparar_features(dados_saude, dados_consulta):
     """
     Prepara as 13 features para o modelo de no-show.
@@ -234,8 +245,8 @@ def preparar_features(dados_saude, dados_consulta):
     sexo_map = {'m': 0, 'f': 1}
     
     # Calcular features temporais baseadas nas datas
-    data_agendamento = dados_consulta['data_agendamento'].date()
-    data_consulta_obj = dados_consulta['data_consulta'].date()
+    data_agendamento = to_datetime(dados_consulta['data_agendamento']).date()
+    data_consulta_obj = to_datetime(dados_consulta['data_consulta']).date()
     
     dias_antecedencia = (data_consulta_obj - data_agendamento).days
     dia_semana = data_consulta_obj.weekday()
