@@ -73,16 +73,9 @@ Essas funções isolam a lógica reutilizável e facilitam manutenção.
 """
  
 def buscar_dados_consulta(id_paciente):
-    """
-    Busca dados da consulta (id_consulta, data_consulta) para o paciente na tabela cc_consultas.
-    Assume que há uma consulta "ativa" (ex.: a próxima futura ou a mais recente).
-    Retorna um dicionário ou None se não encontrar.
-    """
     try:
         conn = conectar_oracle()
         cursor = conn.cursor()
-        # Query: Busca a consulta mais próxima futura (ou a mais recente se não houver futura)
-        # Ajuste a lógica conforme sua necessidade (ex.: WHERE data_consulta >= SYSDATE ORDER BY data_consulta ASC LIMIT 1)
         query = """
             SELECT id, data_consulta, data_agendamento
             FROM cc_consultas
@@ -91,7 +84,6 @@ def buscar_dados_consulta(id_paciente):
             ORDER BY data_consulta ASC
             FETCH FIRST 1 ROW ONLY
         """
-        
         cursor.execute(query, {'id_pac': id_paciente})
         result = cursor.fetchone()
         cursor.close()
@@ -99,17 +91,16 @@ def buscar_dados_consulta(id_paciente):
         
         if not result:
             return None
-            
+        
         return {
             'id_consulta': result[0],
-            'data_consulta': result[1],
-            'data_agendamento': result[2]
+            'data_consulta': result[1],       # já é datetime
+            'data_agendamento': result[2]     # já é datetime
         }
-
     except Exception as e:
         print(f"❌ Erro ao buscar dados da consulta: {e}")
         return None
-
+        
 def gerar_uuid():
     """Gera um UUID único compatível com Oracle para IDs de tabelas."""
     return str(uuid.uuid4())
@@ -234,6 +225,9 @@ def preparar_features(dados_saude, dados_consulta):
     sexo_map = {'m': 0, 'f': 1}
     
     # Calcular features temporais baseadas nas datas
+    print("DEBUG data_agendamento:", dados_consulta['data_agendamento'])
+    print("DEBUG data_consulta:", dados_consulta['data_consulta'])
+
     data_agendamento = dados_consulta['data_agendamento'].date()
     data_consulta_obj = dados_consulta['data_consulta'].date()
     
