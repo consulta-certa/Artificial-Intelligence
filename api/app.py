@@ -234,8 +234,8 @@ def preparar_features(dados_saude, dados_consulta):
     sexo_map = {'m': 0, 'f': 1}
     
     # Calcular features temporais baseadas nas datas
-    data_agendamento = datetime.strptime(dados_saude['data_preenchimento'], '%Y-%m-%d').date()
-    data_consulta_obj = datetime.strptime(dados_consulta['data_consulta'], '%Y-%m-%d').date()
+    data_agendamento = dados_saude['data_preenchimento'].date()
+    data_consulta_obj = dados_consulta['data_consulta'].date()
     
     dias_antecedencia = (data_consulta_obj - data_agendamento).days
     dia_semana = data_consulta_obj.weekday()
